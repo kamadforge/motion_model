@@ -1,3 +1,5 @@
+import time
+
 import matplotlib
 matplotlib.use('Agg')
 import sys
@@ -14,6 +16,9 @@ from modules.inpainting_network import InpaintingNetwork
 from modules.keypoint_detector import KPDetector
 from modules.dense_motion import DenseMotionNetwork
 from modules.avd_network import AVDNetwork
+import cv2
+import matplotlib.pyplot as plt
+from skimage import io
 
 if sys.version_info[0] < 3:
     raise Exception("You must use Python 3 or higher. Recommended version is Python 3.9")
@@ -76,8 +81,20 @@ def make_animation(source_image, driving_video, inpainting_network, kp_detector,
 
         for frame_idx in tqdm(range(driving.shape[2])):
             driving_frame = driving[:, :, frame_idx]
+
+            #driving_frame2 = driving_frame.data.cpu().numpy()
+            #print(driving_frame.shape)
+            driving_frame2 = np.transpose(driving_frame.data.cpu().numpy(), [0, 2, 3, 1])[0]
+            #print(driving_frame2.shape)
+            driving_frame2 = cv2.cvtColor(driving_frame2, cv2.COLOR_BGR2RGB)
+            cv2.imshow("output/driving_frame.jpg", driving_frame2)
+            cv2.waitKey(1)
+            #frame = cv2.resize(driving_frame, (256, 256), fx=0, fy=0,
+                   #            interpolation=cv2.INTER_CUBIC)
+            # cv2.imwrite('output/Frame'+str(frame_idx)+".jpg", np.transpose(driving_frame[0].detach().cpu().numpy(),[1,2,0]))
             driving_frame = driving_frame.to(device)
             kp_driving = kp_detector(driving_frame)
+
             if mode == 'standard':
                 kp_norm = kp_driving
             elif mode=='relative':
@@ -91,6 +108,26 @@ def make_animation(source_image, driving_video, inpainting_network, kp_detector,
             out = inpainting_network(source, dense_motion)
 
             predictions.append(np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0])
+
+            a = np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0]
+
+            a = img_as_ubyte(a)
+
+            cv2.imwrite('output/Frame'+str(frame_idx)+".jpg", a)
+
+            #cv2.imshow('pic-display', imgx)
+            #cv2.imshow("output/frame_"+ str(frame_idx)+".jpg", a)
+            a = cv2.cvtColor(a, cv2.COLOR_BGR2RGB)
+            # print(a.shape)
+            cv2.namedWindow("output/frame.jpg");
+            cv2.moveWindow("output/frame.jpg", 500, 100);
+            cv2.imshow("output/frame.jpg", a)
+            # #cv2.imshow('window', a)
+
+            # cv2.waitKey(1)    #waits for user to press any key (this is necessary to avoid Python kernel form crashing)
+            #
+            # # closing all open windows
+            # cv2.destroyAllWindows()
     return predictions
 
 
@@ -125,12 +162,12 @@ def find_best_frame(source, driving, cpu):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--config", required=True, help="path to config")
+    parser.add_argument("--config", default="config/vox-256.yaml", help="path to config")
     parser.add_argument("--checkpoint", default='checkpoints/vox.pth.tar', help="path to checkpoint to restore")
 
-    parser.add_argument("--source_image", default='./assets/source.png', help="path to source image")
-    parser.add_argument("--driving_video", default='./assets/driving.mp4', help="path to driving video")
-    parser.add_argument("--result_video", default='./result.mp4', help="path to output")
+    parser.add_argument("--source_image", default='./assets/images/partha.jpg', help="path to source image")
+    parser.add_argument("--driving_video", default='./assets/video/celebs1.mp4', help="path to driving video")
+    parser.add_argument("--result_video", default='./result3.mp4', help="path to output")
     
     parser.add_argument("--img_shape", default="256,256", type=lambda x: list(map(int, x.split(','))),
                         help='Shape of image, that the model was trained on.')
@@ -162,6 +199,7 @@ if __name__ == "__main__":
     
     source_image = resize(source_image, opt.img_shape)[..., :3]
     driving_video = [resize(frame, opt.img_shape)[..., :3] for frame in driving_video]
+    #checkpoints for four networks
     inpainting, kp_detector, dense_motion_network, avd_network = load_checkpoints(config_path = opt.config, checkpoint_path = opt.checkpoint, device = device)
  
     if opt.find_best_frame:
@@ -173,7 +211,9 @@ if __name__ == "__main__":
         predictions_backward = make_animation(source_image, driving_backward, inpainting, kp_detector, dense_motion_network, avd_network, device = device, mode = opt.mode)
         predictions = predictions_backward[::-1] + predictions_forward[1:]
     else:
+        t = time.time()
+        print(t)
         predictions = make_animation(source_image, driving_video, inpainting, kp_detector, dense_motion_network, avd_network, device = device, mode = opt.mode)
-    
+        print(time.time()-t)
     imageio.mimsave(opt.result_video, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 
